@@ -1,6 +1,9 @@
 # PSComData
 PowerShell Module for connecting to iconnectdata.com / ComData for managing Fuel Cards
 
+[![PowerShell Gallery Version](https://img.shields.io/powershellgallery/v/PSComData?style=for-the-badge)](https://www.powershellgallery.com/packages/PSComData)
+
+
 # Background
 I was approached by the Human Resource department at my employer and was asked if there was a way to auotomate the creation of drivers in the BP Fuel Card iConnect ComData system.  The goal was to create a means by which any driver that joined the organization was issued a pin code to use any fuel card in the BP Fuel card program.  I split my solution into two pieces.
 1. A module which contained functions to connect to the ComData system (PSComData)
