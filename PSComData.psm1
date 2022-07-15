@@ -1,8 +1,18 @@
 <#
+.DESCRIPTION
+
+.NOTES
+0.3.0 - Updated Username and Password variables to use Module Variable as described in https://thedavecarroll.com/powershell/how-i-implement-module-variables/
 
 #>
 
-$ComDataWebServicesURL = "https://w6.iconnectdata.com/FleetCreditWS/services/FleetCreditWS0200"
+$ComDataSession = [ordered]@{
+    WebServicesURL  = "https://w6.iconnectdata.com/FleetCreditWS/services/FleetCreditWS0200"
+    ComDataUsername = $null
+    ComDataPassword = $null
+}
+New-Variable -Name ComDataSession -Value $ComDataSession -Scope Script -Force
+
 
 function Set-UnsafeHeaderParsing {
     $netAssembly = [Reflection.Assembly]::GetAssembly([System.Net.Configuration.SettingsSection])
@@ -11,93 +21,158 @@ function Set-UnsafeHeaderParsing {
         $SettingsType = $netAssembly.GetType("System.Net.Configuration.SettingsSectionInternal")
         $Instance = $SettingsType.InvokeMember("Section", $BindingFlags, $null, $null, @())
         if ($Instance) {
-            $BindingFlags = "NonPublic","Instance"
+            $BindingFlags = "NonPublic", "Instance"
             $UseUnsafeHeaderParsingField = $SettingsType.GetField("useUnsafeHeaderParsing", $BindingFlags)
             if ($UseUnsafeHeaderParsingField) {
-              $UseUnsafeHeaderParsingField.SetValue($Instance, $true)
+                $UseUnsafeHeaderParsingField.SetValue($Instance, $true)
             }
         }
+    }
+}
+
+# Set the ComData Session Credentials
+# The ComData Session Credentials must be set before any other functions can be called
+function Set-ComDataSessionCredentials {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [String] $Username,
+        [Parameter(Mandatory = $true)]
+        [String] $Password
+    )
+    $ComDataSession.ComDataUsername = $Username
+    $ComDataSession.ComDataPassword = $Password
+}
+
+function Set-ComDataSessionEnvironment {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('Certification', 'Production')]
+        [String] $Environment
+    )
+    switch ($Environment) {
+        Certification {
+            $ComDataSession.WebServicesURL = 'https://w8cert.iconnectdata.com/FleetCreditWS/services/FleetCreditWS0200'
+        }
+        Production {
+            $ComDataSession.WebServicesURL = 'https://api.iconnectdata.com/FleetCreditWS/services/FleetCreditWS0200'
+        }
+    }  
+}
+
+function Get-ComDataSessionVariables {
+    $ComDataSession | ConvertTo-Json | ConvertFrom-Json | Format-List
+}
+
+function Test-ComDataSessionVariables {
+    $Score = 0
+    if ($null -ne $ComDataSession.ComDataUsername) {
+        Write-Verbose "ComData Username confirmed to be not null"
+        $Score++
+    }
+    if ($null -ne $ComDataSession.ComDataPassword) {
+        Write-Verbose "ComData Password confirmed to be not null"
+        $Score++
+    }
+    if ($null -ne $ComDataSession.WebServicesURL) {
+        Write-Verbose "WebServicesURL confirmed to be not null"
+        $Score++
+    }
+    if ($Score -eq 3) {
+        return $true
+    }
+    else {
+        return $false
     }
 }
 
 function Get-ComDataDriverList {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory=$true)]
-        [String] $AccountNumber,
-        [Parameter(Mandatory=$true)]
-        [String] $Username,
-        [Parameter(Mandatory=$true)]
-        [String] $Password
-
+        [Parameter(Mandatory = $true)]
+        [String] $AccountNumber
     )
-    
-    $SOAPActionHeader = @{"SOAPAction" = "http://fleetCredit02.comdata.com/FleetCreditWS0200/inquireDriverId"}
 
-    [xml]$SOAP = '
-        <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:main="http://fleetCredit02.comdata.com/maintenance/">
-            <soapenv:Header>
-                <wsse:Security soapenv:mustUnderstand="1" xmlns:wsse="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd">
-                    <wsse:UsernameToken wsu:Id="UsernameToken-12" xmlns:wsu="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd">
-                        <wsse:Username></wsse:Username>
-                        <wsse:Password Type="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-username-token-profile-1.0#PasswordText"></wsse:Password>
-                    </wsse:UsernameToken>
-                </wsse:Security>
-            </soapenv:Header>
-            <soapenv:Body>
-                <main:DriverIdInquireRequest>
-                    <criteria>
-                        <driverId></driverId>
-                        <firstName></firstName>
-                        <lastName></lastName>
-                        <driverLicNbr></driverLicNbr>
-                        <driverLicState></driverLicState>
-                        <custId></custId>
-                        <acctNbr></acctNbr>
-                        <misc1></misc1>
-                        <misc2></misc2>
-                        <driverEmail></driverEmail>
-                    </criteria>
-                    <pageNbr>1</pageNbr>
-                </main:DriverIdInquireRequest>
-            </soapenv:Body>
-        </soapenv:Envelope>'
-       
-    Set-UnsafeHeaderParsing
+    begin {
+        if (-not(Test-ComDataSessionVariables)) {
+            throw "ComData Session Variables have not been set properly!  Please call Set-ComDataSessionCredentials first."
+        }
+    }
 
-    $SOAP.Envelope.Header.Security.UsernameToken.Username = $Username
-    $SOAP.Envelope.Header.Security.UsernameToken.Password = $Password
-    $SOAP.Envelope.Body.DriverIdInquireRequest.criteria.acctNbr = $AccountNumber
+    process {
+        $SOAPActionHeader = @{"SOAPAction" = "http://fleetCredit02.comdata.com/FleetCreditWS0200/inquireDriverId" }
 
-    $Response = Invoke-WebRequest -Uri $ComDataWebServicesURL -Method post -ContentType 'text/xml' -Body $SOAP -Headers $SOAPActionHeader
+        [xml]$SOAP = '
+            <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:main="http://fleetCredit02.comdata.com/maintenance/">
+                <soapenv:Header>
+                    <wsse:Security soapenv:mustUnderstand="1" xmlns:wsse="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd">
+                        <wsse:UsernameToken wsu:Id="UsernameToken-12" xmlns:wsu="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd">
+                            <wsse:Username></wsse:Username>
+                            <wsse:Password Type="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-username-token-profile-1.0#PasswordText"></wsse:Password>
+                        </wsse:UsernameToken>
+                    </wsse:Security>
+                </soapenv:Header>
+                <soapenv:Body>
+                    <main:DriverIdInquireRequest>
+                        <criteria>
+                            <driverId></driverId>
+                            <firstName></firstName>
+                            <lastName></lastName>
+                            <driverLicNbr></driverLicNbr>
+                            <driverLicState></driverLicState>
+                            <custId></custId>
+                            <acctNbr></acctNbr>
+                            <misc1></misc1>
+                            <misc2></misc2>
+                            <driverEmail></driverEmail>
+                        </criteria>
+                        <pageNbr>1</pageNbr>
+                    </main:DriverIdInquireRequest>
+                </soapenv:Body>
+            </soapenv:Envelope>'
+        
+        Set-UnsafeHeaderParsing
 
-    $ResponseContent = [xml]$Response.Content
+        $SOAP.Envelope.Header.Security.UsernameToken.Username = $ComDataSession.ComDataUsername
+        $SOAP.Envelope.Header.Security.UsernameToken.Password.InnerText = $ComDataSession.ComDataPassword
+        $SOAP.Envelope.Body.DriverIdInquireRequest.criteria.acctNbr = $AccountNumber
 
-    $PageCount = $ResponseContent.Envelope.Body.DriverIdInquireResponse.pageCount
-    $PageNumber = 1
-    $DriverList = @()
-    do {
-        $SOAP.Envelope.Body.DriverIdInquireRequest.pageNbr = "$PageNumber"
-        $Response = Invoke-WebRequest $ComDataWebServicesURL -Method post -ContentType 'text/xml' -Body $SOAP -Headers $SOAPActionHeader
+        Write-Verbose $SOAP.OuterXml
+
+        $Response = Invoke-WebRequest -Uri $ComDataSession.WebServicesURL -Method post -ContentType 'text/xml' -Body $SOAP -Headers $SOAPActionHeader
+
         $ResponseContent = [xml]$Response.Content
-        $DriverList += $ResponseContent.Envelope.Body.DriverIdInquireResponse.records.driverIdSearchRecord
-        $PageNumber++
-    } while ($PageNumber -le $PageCount)
-    return $DriverList
+
+        $PageCount = $ResponseContent.Envelope.Body.DriverIdInquireResponse.pageCount
+        $PageNumber = 1
+        $DriverList = @()
+        do {
+            $SOAP.Envelope.Body.DriverIdInquireRequest.pageNbr = "$PageNumber"
+            $Response = Invoke-WebRequest $ComDataSession.WebServicesURL -Method post -ContentType 'text/xml' -Body $SOAP -Headers $SOAPActionHeader
+            $ResponseContent = [xml]$Response.Content
+            $DriverList += $ResponseContent.Envelope.Body.DriverIdInquireResponse.records.driverIdSearchRecord
+            $PageNumber++
+        } while ($PageNumber -le $PageCount)
+    }
+
+    end {
+        return $DriverList
+    }
 }
 
 function Get-ComDataDriver {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [String] $AccountNumber,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [String] $Username,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [String] $Password
     )
 
-    $SOAPActionHeader = @{"SOAPAction" = "http://fleetCredit02.comdata.com/FleetCreditWS0200/inquireDriverId"}
+    $SOAPActionHeader = @{"SOAPAction" = "http://fleetCredit02.comdata.com/FleetCreditWS0200/inquireDriverId" }
     
     [xml]$SOAP = '
         <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:main="http://fleetCredit02.comdata.com/maintenance/">
@@ -144,17 +219,17 @@ function Get-ComDataDriver {
 function Remove-ComDataDriver {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [String] $AccountNumber,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [String] $CustomerID,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [String] $Username,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [String] $Password
     )
 
-    $SOAPActionHeader = @{"SOAPAction" = "http://fleetCredit02.comdata.com/FleetCreditWS0200/deleteDriverId"}
+    $SOAPActionHeader = @{"SOAPAction" = "http://fleetCredit02.comdata.com/FleetCreditWS0200/deleteDriverId" }
     
     [xml]$SOAP = '
         <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:main="http://fleetCredit02.comdata.com/maintenance/">
@@ -189,7 +264,8 @@ function Remove-ComDataDriver {
         if ($ResponseContent.Envelope.Body.DriverIdDeleteResponse.responseCode -eq "0") {
             Write-Host "Driver Removed Sucessfully"
         }
-    } else {
+    }
+    else {
         Write-Host "Error: DriverID $DriverID does not exists"
     } 
 }
@@ -197,27 +273,27 @@ function Remove-ComDataDriver {
 function New-ComDataDriver {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [String] $AccountNumber,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [String] $CustomerID,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [String] $Username,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [String] $Password,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [String] $DriverID,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [String] $FirstName,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [String] $LastName,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [String] $EmployeeID,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [String] $Email
     )
     
-    $SOAPActionHeader = @{"SOAPAction" = "http://fleetCredit02.comdata.com/FleetCreditWS0200/addDriverId"}
+    $SOAPActionHeader = @{"SOAPAction" = "http://fleetCredit02.comdata.com/FleetCreditWS0200/addDriverId" }
 
     [xml]$SOAP = '
         <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:main="http://fleetCredit02.comdata.com/maintenance/">
@@ -268,13 +344,16 @@ function New-ComDataDriver {
             Write-Host "Driver Added Sucessfully"
         }
     
-    } else {
+    }
+    else {
         Write-Host "Error: DriverID $DriverID already exists"
     } 
 }
 
+Export-ModuleMember -Function Set-ComDataSessionCredentials
+Export-ModuleMember -Function Set-ComDataSessionEnvironment
+Export-ModuleMember -Function Get-ComDataSessionVariables
 Export-ModuleMember -Function Get-ComDataDriver
 Export-ModuleMember -Function Get-ComDataDriverList
 Export-ModuleMember -Function Remove-ComDataDriver
 Export-ModuleMember -Function New-ComDataDriver
-Export-ModuleMember -Function Send-ComDataWelcomeEmail

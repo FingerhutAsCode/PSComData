@@ -18,7 +18,7 @@ ModuleVersion = '0.2.0'
 # CompatiblePSEditions = @()
 
 # ID used to uniquely identify this module
-GUID = '275e51bf-05cc-4f8d-b5bc-e0931045b8fc'
+GUID = '8c68a19c-dcd2-45ae-8d40-024ae88c6ed5'
 
 # Author of this module
 Author = 'FingerhutAsCode'
@@ -30,7 +30,7 @@ CompanyName = 'Unknown'
 Copyright = '(c) FingerhutAsCode. All rights reserved.'
 
 # Description of the functionality provided by this module
-# Description = ''
+Description = 'PowerShell Module to connect to BP Fuel Card system via iConnectData ComData System'
 
 # Minimum version of the PowerShell engine required by this module
 # PowerShellVersion = ''
