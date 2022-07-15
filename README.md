@@ -1,7 +1,7 @@
 # PSComData
 PowerShell Module for connecting to iconnectdata.com / ComData for managing Fuel Cards
 
-![PowerShell Gallery Version](https://img.shields.io/powershellgallery/v/PSComData?style=for-the-badge)
+[![PowerShell Gallery Version](https://img.shields.io/powershellgallery/v/PSComData?style=for-the-badge)](https://www.powershellgallery.com/packages/PSComData)
 
 
 # Background
